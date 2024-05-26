@@ -15,15 +15,3 @@ This project provides a graphical tool for converting MaxScript code into Python
 ## License
 
 This project is licensed under the MIT License. See the `LICENSE` file for more details.
-
-## Acknowledgements
-
-- Special thanks to the contributors and the open-source community for their support and contributions.
-
-## Contact
-
-For any questions or suggestions, feel free to open an issue on GitHub or contact me directly at [your-email@example.com].
-
----
-
-By following these guidelines, you can set up, use, and contribute to the MaxScript to Python Converter project efficiently. Happy coding!
