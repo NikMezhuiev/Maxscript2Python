@@ -118,10 +118,13 @@ class Statement(Piece):
 
 TYPE_DICT = {
 	'string':		'str',
-	'stringstream':	'stringstream',
+	'stringstream':	'StringStream',
 	'integer':		'int',
 	'float':		'float',
 	'name':			'rt.Name',
+	'array':		'list',
+	'color':		'rt.Color',
+	'bitarray':		'rt.BitArray',
 }
 
 functions_set = user_functions | max_functions
