@@ -1,15 +1,19 @@
 import json
-import sys
+import re
 import traceback
+import sys
 
 from PySide6.QtCore import Qt, QRegularExpression
 from PySide6.QtGui import QSyntaxHighlighter, QTextCharFormat, QFont, QTextOption, QTextCursor, \
 	QTextBlockFormat, QCursor
 from PySide6.QtWidgets import QApplication, QTextEdit, QSplitter, QMainWindow, QMenu
 
-from classes import *
 from data import *
-from functions import split_to_blocks, replace_blocks, extract_words, replace_colon, merge_spaces, trim_right_spaces, convert_arrays, count_to_len, replace_as_type, replace_variables, merge_blocks, process_by_line, find_this_functions
+
+from parsec import ParseError
+import mxsp
+import pyout
+import mxscp
 
 r = 1
 app: QApplication | None = None
@@ -19,38 +23,49 @@ initial_text2 = ''
 initial_text = ''
 
 
-def process_code(text: str) -> str:
-	this_functions = find_this_functions(text)
+def preprocess(input_buf: str, filename: str) -> str:
+	"""
+	Preprocess the input_buf, replacing \r\n by \n, etc.
+	"""
+	dir_name = os.path.dirname(filename)
+	# pretty bogus just strip out include directives (what we should do is read the
+	# refernced file and insert it. Would not be more difficult but let's keep it simple for now)
+	include_regex = re.compile(r'include +"([^"]*)"')
 	
-	found_words = extract_words(text)
-	rebuild_variables()
+	def expand_match(mpath: str) -> tuple[str, str]:
+		# pylint: disable=invalid-name, line-too-long
+		"""Read file mpath, replacing \r\n by \n and \t by four spaces and returning the resulting buffer"""
+		fn = mpath[1]
+		full_fn = os.path.join(dir_name, fn)
+		with open(full_fn, encoding="utf-8") as f:
+			buf = f.read().replace("\r\n", "\n").replace("\t", "    ")
+			return mpath[0], buf
 
-	text = replace_colon(text)
+	for path_rep in map(expand_match, re.finditer(include_regex, input_buf)):
+		input_buf = input_buf.replace(path_rep[0], path_rep[1])
 
-	for key, value in C_DICT.items():
-		text = text.replace(key, value)
+	return input_buf
 
-	text = process_by_line(text, REPLACE_STARTS, REPLACE_ENDS)
 
-	for old, new in REPLACE_ALL:
-		text = text.replace(old, new)
-		
-	text = convert_arrays(text)
-	text = count_to_len(text)
-	text = replace_as_type(text)
+def topy(input_str, file_header=None, snippet=False):
 
-	for word in max_functions:
-		text = re.sub(r'\b' + re.escape(word) + r'\b', 'rt.'+word, text)
-
-	text = replace_variables(text, found_words, variables)
-	
-	text = merge_spaces(text)
-	text = trim_right_spaces(text)
-	
-	blocks = split_to_blocks(text)
-	blocks = replace_blocks(blocks, user_functions.union(this_functions), max_functions)
-	text = merge_blocks(blocks)
-	return text
+	comments = mxscp.anycomment.parse(input_str)
+	stripped = mxscp.blank_comments(input_str, comments)
+	parsed = mxsp.file.parse(stripped)
+	lines = stripped.split("\n")
+	num_lines = len(lines)
+	output = pyout.out_py(parsed[1], comments, file_header, snippet)
+	parsed_lines, dummy = parsed[2]
+	parsed_lines = parsed_lines + 1
+	error = None
+	if parsed_lines < num_lines:
+		error = f"partial parse parsed_lines = {parsed_lines}, num_lines = {num_lines} {parsed}\n"
+		to_reparse = '\n'.join(lines[parsed_lines:])
+		try:
+			mxsp.program_step.parse(to_reparse)
+		except ParseError as e:
+			error = f"{error}\n\n{e}\n\nin:\n\n<pre>{to_reparse}</pre>"
+	return output, error
 
 
 class PythonHighlighter(QSyntaxHighlighter):
@@ -319,46 +334,48 @@ class MaxScript2Python(QMainWindow):
 		self.py_highlighter.active = True
 		
 		text = self.edt_input.toPlainText()
-		
-		# text = process_code(text)
-		
-		text = remove_comments_from_string(text)
-		tokens = tokenize(text)
-		
-		
-		#replace sequences of tokens
-		for sequence in LIGATURES:
-			tokens = merge_sequence(tokens, sequence)
-		
-		
-		#remove multiline comments
-		index = 0
-		while index < len(tokens):
-			if tokens[index] == '/*':
-				end = index
-				while end < len(tokens) and tokens[end] != '*/': end += 1
-				tokens[index:end+1] = []
-
-			index += 1
-		
-		
-		#remove single tokens
-		tokens = [token for token in tokens if token not in ['local', 'global', 'persistent', '::']]
-		
-		
-		#replace single tokens
-		for token in tokens:
-			l_token = token.lower()
-			if l_token in SINGLE_REPLACEMENTS:
-				index = tokens.index(token)
-				tokens[index] = SINGLE_REPLACEMENTS[l_token]
-
-		
-		# tokens = process_dots(tokens)
+		#
+		# # text = process_code(text)
+		#
+		# text = remove_comments_from_string(text)
+		# tokens = tokenize(text)
+		#
+		#
+		# #replace sequences of tokens
+		# for sequence in LIGATURES:
+		# 	tokens = merge_sequence(tokens, sequence)
+		#
+		#
+		# #remove multiline comments
+		# index = 0
+		# while index < len(tokens):
+		# 	if tokens[index] == '/*':
+		# 		end = index
+		# 		while end < len(tokens) and tokens[end] != '*/': end += 1
+		# 		tokens[index:end+1] = []
+		#
+		# 	index += 1
+		#
+		#
+		# #remove single tokens
+		# tokens = [token for token in tokens if token not in ['local', 'global', 'persistent', '::']]
+		#
+		#
+		# #replace single tokens
+		# for token in tokens:
+		# 	l_token = token.lower()
+		# 	if l_token in SINGLE_REPLACEMENTS:
+		# 		index = tokens.index(token)
+		# 		tokens[index] = SINGLE_REPLACEMENTS[l_token]
+		#
+		#
+		# # tokens = process_dots(tokens)
 		
 		
 		try:
-			text = parse_tokens(tokens)
+			# text = parse_tokens(tokens)
+			
+			text, error = topy(text)
 		except Exception as e:
 			self.py_highlighter.active = False
 			text = str(e) + traceback.format_exc()
